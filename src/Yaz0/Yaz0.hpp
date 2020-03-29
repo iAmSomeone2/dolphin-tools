@@ -62,7 +62,7 @@ public:
      * 
      * @return output path for decoded RARC file
      */
-    fs::path generateRarcPath(fs::path srcPath, int bytePosition); 
+    fs::path generateRarcPath(); 
 
     /**
      * Reads a 4-byte value from the source data at 'index'.

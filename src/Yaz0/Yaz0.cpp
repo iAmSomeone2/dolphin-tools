@@ -14,7 +14,7 @@ using boost::format, std::string;
  * 
  * @param yaz0FilePath filesystem path used to located input file.
  */
-Yaz0::Yaz0(const fs::path& yaz0FilePath)
+Yaz0::Yaz0(const fs::path &yaz0FilePath)
 {
     this->sourcePath = yaz0FilePath;
     std::ifstream yaz0Stream = std::ifstream(yaz0FilePath, std::ios::ate | std::ios::binary);
@@ -42,15 +42,17 @@ Yaz0::Yaz0(const fs::path& yaz0FilePath)
  * 
  * @returns 32-bit value read at that position.
  */
-uint32_t Yaz0::readDoubleWordAt(const int& index) {
-    if (this->sourceData.size() - index < 0) {
+uint32_t Yaz0::readDoubleWordAt(const int &index)
+{
+    if (this->sourceData.size() - index < 0)
+    {
         throw std::runtime_error("Index too near end of data.");
     }
 
     uint32_t byte1 = static_cast<uint32_t>(this->sourceData[index]);
-    uint32_t byte2 = static_cast<uint32_t>(this->sourceData[index+1]);
-    uint32_t byte3 = static_cast<uint32_t>(this->sourceData[index+2]);
-    uint32_t byte4 = static_cast<uint32_t>(this->sourceData[index+3]);
+    uint32_t byte2 = static_cast<uint32_t>(this->sourceData[index + 1]);
+    uint32_t byte3 = static_cast<uint32_t>(this->sourceData[index + 2]);
+    uint32_t byte4 = static_cast<uint32_t>(this->sourceData[index + 3]);
 
     return (byte1 << 24) | (byte2 << 16) | (byte3 << 8) | byte4;
 }
@@ -63,15 +65,17 @@ uint32_t Yaz0::readDoubleWordAt(const int& index) {
  * 
  * @returns 32-bit value read at that position.
  */
-uint32_t Yaz0::readDoubleWord() {
+uint32_t Yaz0::readDoubleWord()
+{
     this->srcPos += 4;
     return this->readDoubleWordAt(this->srcPos - 4);
 }
 
-GroupHeader Yaz0::generateGroupHeader(uint64_t destPos) {
+GroupHeader Yaz0::generateGroupHeader(uint64_t destPos)
+{
     GroupHeader header;
     uint8_t byte1 = this->sourceData[this->srcPos];
-    uint8_t byte2 = this->sourceData[this->srcPos+1];
+    uint8_t byte2 = this->sourceData[this->srcPos + 1];
     this->srcPos += 2;
 
     /*
@@ -82,9 +86,12 @@ GroupHeader Yaz0::generateGroupHeader(uint64_t destPos) {
     uint32_t rev = (((byte1 & 0xF) << 8) | byte2) + 1;
     header.dataStart = destPos - rev;
 
-    if ((byte1 & 0xF0) != 0) {
+    if ((byte1 & 0xF0) != 0)
+    {
         header.runLength = (byte1 >> 4) + 2;
-    } else {
+    }
+    else
+    {
         header.runLength = this->sourceData[this->srcPos] + 0x12;
         this->srcPos++;
     }
@@ -101,25 +108,18 @@ GroupHeader Yaz0::generateGroupHeader(uint64_t destPos) {
  */
 data_block Yaz0::decodeBlock()
 {
-    std::ofstream rarcStream = std::ofstream(this->outPath, std::ios::binary);
-    if (!rarcStream.is_open()) {
-        std::stringstream errorMsg;
-        errorMsg << format("Failed to open %s for writing.") % this->outPath.string();
-        throw std::runtime_error(errorMsg.str());
-    }
-
     data_block decodedBlock;
     decodedBlock.resize(this->currentHeader.uncompressedSize);
     uint32_t decodeIdx = 0;
     queue<bool> insQueue = Yaz0::generateCopyInsQueue(this->sourceData[this->srcPos]);
     this->srcPos++;
-    
-    uint64_t filePos = 0;
+
     while (decodeIdx < this->currentHeader.uncompressedSize)
     {
         uint32_t writtenByteCount = 0;
 
-        if (insQueue.empty()) {
+        if (insQueue.empty())
+        {
             insQueue = Yaz0::generateCopyInsQueue(this->sourceData[this->srcPos]);
             this->srcPos++;
         }
@@ -127,33 +127,30 @@ data_block Yaz0::decodeBlock()
         bool insVal = insQueue.front();
         insQueue.pop();
 
-        if(insVal) {
+        if (insVal)
+        {
             // Directly copy contents
             decodedBlock[decodeIdx] = this->sourceData[this->srcPos];
             decodeIdx++;
             this->srcPos++;
             writtenByteCount = 1;
-        } else {
+        }
+        else
+        {
             // Run-length encoded data
             GroupHeader groupHeader = this->generateGroupHeader(decodeIdx);
 
             uint64_t copyLoc = groupHeader.dataStart;
             // Copy the data run
-            for (uint32_t i = 0; i < groupHeader.runLength; i++) {
+            for (uint32_t i = 0; i < groupHeader.runLength; i++)
+            {
                 decodedBlock[decodeIdx] = decodedBlock[copyLoc];
                 copyLoc++;
                 decodeIdx++;
                 writtenByteCount++;
             }
         }
-
-        // Write data out to file
-        rarcStream.write(reinterpret_cast<char*>(decodedBlock.data() + filePos), writtenByteCount);
-        rarcStream.flush();
-        filePos += writtenByteCount;
     }
-
-    rarcStream.close();
     decodedBlock.shrink_to_fit();
 
     this->blockNum++;
@@ -164,19 +161,24 @@ data_block Yaz0::decodeBlock()
 /**
  * Decodes the entire contents of the Yaz0 data.
  */
-void Yaz0::decodeAll() {
+void Yaz0::decodeAll()
+{
     this->srcPos = 0;
 
     while (this->srcPos < this->inputFileSize)
     {
         // Search for a Yaz0 block
         bool blockFound = false;
-        while (this->srcPos + 3 < this->inputFileSize && !blockFound) {
-            if (!this->isHeaderTag(this->srcPos)) {
+        while (this->srcPos + 3 < this->inputFileSize && !blockFound)
+        {
+            if (!this->isHeaderTag(this->srcPos))
+            {
                 this->srcPos++;
-            } else {
+            }
+            else
+            {
                 this->currentHeader.tag[4] = '\0';
-                strncpy(this->currentHeader.tag, reinterpret_cast<char*>(this->sourceData.data() + this->srcPos), 4);
+                strncpy(this->currentHeader.tag, reinterpret_cast<char *>(this->sourceData.data() + this->srcPos), 4);
                 this->srcPos += 4;
                 this->currentHeader.uncompressedSize = this->readDoubleWord();
                 this->currentHeader.reserved[0] = this->readDoubleWord();
@@ -185,42 +187,30 @@ void Yaz0::decodeAll() {
             }
         }
 
-        if (this->srcPos + 3 >= this->inputFileSize) {
+        if (this->srcPos + 3 >= this->inputFileSize)
+        {
             // The end of the file has been reached.
             return;
         }
 
-        // uint32_t size = this->sourceData.size() * 2;
-        // try
-        // {
-        //     size = this->readDoubleWordAt(this->srcPos);
-        // }
-        // catch (const std::runtime_error& err)
-        // {
-        //     std::cerr << err.what() << std::endl;
-        //     exit(-1);
-        // }
+        this->outPath = Yaz0::generateRarcPath();
 
-        this->outPath = Yaz0::generateRarcPath(this->sourcePath, this->srcPos);
+        std::ofstream rarcStream = std::ofstream(this->outPath, std::ios::binary);
 
-        // std::ofstream rarcStream = std::ofstream(this->outPath, std::ios::binary);
-
-        // if (!rarcStream.is_open()) {
-        //     std::stringstream errorMsg;
-        //     errorMsg << format("Failed to open %s for writing.") % this->outPath.string();
-        //     throw std::runtime_error(errorMsg.str());
-        // }
+        if (!rarcStream.is_open()) {
+            std::stringstream errorMsg;
+            errorMsg << format("Failed to open %s for writing.") % this->outPath.string();
+            throw std::runtime_error(errorMsg.str());
+        }
 
         std::cout << format("Writing %s\n") % this->outPath.string();
 
         std::cout << format("Writing 0x%X bytes\n") % this->currentHeader.uncompressedSize;
 
-        // this->srcPos += 2;
-
         vector<uint8_t> decodedBlock = this->decodeBlock();
 
-        // rarcStream.write(reinterpret_cast<char*>(decodedBlock.data()), decodedBlock.size());
-        // rarcStream.close();
+        rarcStream.write(reinterpret_cast<char*>(decodedBlock.data()), decodedBlock.size());
+        rarcStream.close();
 
         std::cout << format("Read 0x%X bytes from input data\n") % this->srcPos;
     }
@@ -234,12 +224,13 @@ void Yaz0::decodeAll() {
  * 
  * @return true if the string, Yaz0, is found at that location.
  */
-bool Yaz0::isHeaderTag(const uint64_t& index) {
+bool Yaz0::isHeaderTag(const uint64_t &index)
+{
     char *tagTxt = new char[5];
     tagTxt[0] = this->sourceData[index];
-    tagTxt[1] = this->sourceData[index+1];
-    tagTxt[2] = this->sourceData[index+2];
-    tagTxt[3] = this->sourceData[index+3];
+    tagTxt[1] = this->sourceData[index + 1];
+    tagTxt[2] = this->sourceData[index + 2];
+    tagTxt[3] = this->sourceData[index + 3];
     tagTxt[4] = '\0';
 
     int result = strncmp("Yaz0", tagTxt, 4);
@@ -255,10 +246,12 @@ bool Yaz0::isHeaderTag(const uint64_t& index) {
  * 
  * @returns a queue containing the boolean values read from the 'code' byte.
  */
-queue<bool> Yaz0::generateCopyInsQueue(uint8_t codeByte) {
+queue<bool> Yaz0::generateCopyInsQueue(uint8_t codeByte)
+{
     queue<bool> insQueue;
 
-    for (int i = 7; i >= 0; i--) {
+    for (int i = 7; i >= 0; i--)
+    {
         bool bit = static_cast<bool>((codeByte & 0b10000000) >> i);
         insQueue.push(bit);
         codeByte = codeByte << 1;
@@ -293,13 +286,16 @@ uint32_t Yaz0::toLittleEndian(const uint32_t &num)
  * 
  * @return output path for decoded RARC file
  */
-fs::path Yaz0::generateRarcPath(fs::path srcPath, int bytePosition) {
+fs::path Yaz0::generateRarcPath()
+{
     std::stringstream pathString;
-    string fileName = srcPath.replace_extension("").filename().string();
+    string fileName = this->sourcePath.replace_extension("").filename().string();
     pathString << format("%s_%d.rarc") % fileName % this->blockNum;
-    return fs::path(pathString.str());
+    fs::path rarcPath = this->sourcePath.root_path().concat(pathString.str());
+    return rarcPath;
 }
 
-int Yaz0::getInputFileSize() {
+int Yaz0::getInputFileSize()
+{
     return this->inputFileSize;
 }
