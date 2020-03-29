@@ -1,0 +1,10 @@
+# Jebrains IDE files
+**/**/.idea/
+
+# Built binaries
+build*/
+cmake-build*/
+
+# Test resources that can't be distrbuted
+**/test/resources/*
+!**/test/resources/README.md
