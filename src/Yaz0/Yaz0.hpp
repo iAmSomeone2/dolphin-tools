@@ -20,6 +20,9 @@ struct Yaz0Header {
     uint32_t    reserved[2];
 };
 
+/**
+ * Struct representing the header at the beginning of a compressed group.
+ */
 struct GroupHeader {
         uint32_t dataStart;
         uint32_t runLength;
@@ -59,18 +62,28 @@ public:
      * 
      * @return output path for decoded RARC file
      */
-    static fs::path generateRarcPath(fs::path srcPath, int bytePosition); 
+    fs::path generateRarcPath(fs::path srcPath, int bytePosition); 
 
     /**
      * Reads a 4-byte value from the source data at 'index'.
      * 
-     * @note This does not modify the srcPos instance variable.
+     * @note This DOES NOT modify the srcPos instance variable.
      * 
      * @param index point at where to read the value from.
      * 
      * @returns 32-bit value read at that position.
      */
     uint32_t readDoubleWordAt(const int& index);
+
+    /**
+     * Reads a 4-byte value from the source data at the current source
+     * position and increments srcPos accordingly.
+     * 
+     * @note This DOES modify the srcPos instance variable.
+     * 
+     * @returns 32-bit value read at that position.
+     */
+    uint32_t readDoubleWord();
 
     /**
      * Decodes a block of Yaz0 data.
@@ -96,9 +109,11 @@ public:
 private:
     Yaz0Header currentHeader;
     fs::path sourcePath;
+    fs::path outPath;
     vector<uint8_t> sourceData;
     uint64_t inputFileSize = 0;
     uint64_t srcPos = 0;
+    uint32_t blockNum = 0;
 
     /**
      * Reads four bytes as a string starting at 'index' and checks if the
@@ -119,5 +134,5 @@ private:
      */
     static queue<bool> generateCopyInsQueue(uint8_t codeByte);
 
-    GroupHeader generateGroupHeader();
+    GroupHeader generateGroupHeader(uint64_t destPos);
 };

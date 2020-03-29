@@ -55,24 +55,39 @@ uint32_t Yaz0::readDoubleWordAt(const int& index) {
     return (byte1 << 24) | (byte2 << 16) | (byte3 << 8) | byte4;
 }
 
-GroupHeader Yaz0::generateGroupHeader() {
+/**
+ * Reads a 4-byte value from the source data at the current source
+ * position and increments srcPos accordingly.
+ * 
+ * @note This DOES modify the srcPos instance variable.
+ * 
+ * @returns 32-bit value read at that position.
+ */
+uint32_t Yaz0::readDoubleWord() {
+    this->srcPos += 4;
+    return this->readDoubleWordAt(this->srcPos - 4);
+}
+
+GroupHeader Yaz0::generateGroupHeader(uint64_t destPos) {
     GroupHeader header;
     uint8_t byte1 = this->sourceData[this->srcPos];
     uint8_t byte2 = this->sourceData[this->srcPos+1];
+    this->srcPos += 2;
 
-    uint8_t srcOffset = 0;
-
-    if ((byte1 & 0xF0) == 0) {
-        header.runLength = (byte1 >> 4) + 2;
-        srcOffset = 2;
-    } else {
-        header.runLength = this->sourceData[this->srcPos+3] + 0x12;
-        srcOffset = 3;
-    }
+    /*
+        Somewhere in this method is an error that's causing the dataStart
+        address to be completely wrong.
+    */
 
     uint32_t rev = (((byte1 & 0xF) << 8) | byte2) + 1;
-    header.dataStart = this->srcPos - rev;
-    this->srcPos += srcOffset;  // This line may need to go after the next line.
+    header.dataStart = destPos - rev;
+
+    if ((byte1 & 0xF0) != 0) {
+        header.runLength = (byte1 >> 4) + 2;
+    } else {
+        header.runLength = this->sourceData[this->srcPos] + 0x12;
+        this->srcPos++;
+    }
 
     return header;
 }
@@ -86,14 +101,24 @@ GroupHeader Yaz0::generateGroupHeader() {
  */
 data_block Yaz0::decodeBlock()
 {
+    std::ofstream rarcStream = std::ofstream(this->outPath, std::ios::binary);
+    if (!rarcStream.is_open()) {
+        std::stringstream errorMsg;
+        errorMsg << format("Failed to open %s for writing.") % this->outPath.string();
+        throw std::runtime_error(errorMsg.str());
+    }
+
     data_block decodedBlock;
     decodedBlock.resize(this->currentHeader.uncompressedSize);
     uint32_t decodeIdx = 0;
     queue<bool> insQueue = Yaz0::generateCopyInsQueue(this->sourceData[this->srcPos]);
     this->srcPos++;
     
-    for (int readCount = 0; readCount < this->currentHeader.uncompressedSize; readCount++)
+    uint64_t filePos = 0;
+    while (decodeIdx < this->currentHeader.uncompressedSize)
     {
+        uint32_t writtenByteCount = 0;
+
         if (insQueue.empty()) {
             insQueue = Yaz0::generateCopyInsQueue(this->sourceData[this->srcPos]);
             this->srcPos++;
@@ -107,22 +132,31 @@ data_block Yaz0::decodeBlock()
             decodedBlock[decodeIdx] = this->sourceData[this->srcPos];
             decodeIdx++;
             this->srcPos++;
+            writtenByteCount = 1;
         } else {
             // Run-length encoded data
-            GroupHeader groupHeader = this->generateGroupHeader();
+            GroupHeader groupHeader = this->generateGroupHeader(decodeIdx);
 
             uint64_t copyLoc = groupHeader.dataStart;
             // Copy the data run
             for (uint32_t i = 0; i < groupHeader.runLength; i++) {
-                // TODO: Figure out why copyLoc keeps overflowing
                 decodedBlock[decodeIdx] = decodedBlock[copyLoc];
                 copyLoc++;
                 decodeIdx++;
+                writtenByteCount++;
             }
         }
+
+        // Write data out to file
+        rarcStream.write(reinterpret_cast<char*>(decodedBlock.data() + filePos), writtenByteCount);
+        rarcStream.flush();
+        filePos += writtenByteCount;
     }
 
+    rarcStream.close();
     decodedBlock.shrink_to_fit();
+
+    this->blockNum++;
 
     return decodedBlock;
 }
@@ -144,12 +178,9 @@ void Yaz0::decodeAll() {
                 this->currentHeader.tag[4] = '\0';
                 strncpy(this->currentHeader.tag, reinterpret_cast<char*>(this->sourceData.data() + this->srcPos), 4);
                 this->srcPos += 4;
-                this->currentHeader.uncompressedSize = this->readDoubleWordAt(this->srcPos);
-                this->srcPos += 4;
-                this->currentHeader.reserved[0] = this->readDoubleWordAt(this->srcPos);
-                this->srcPos += 4;
-                this->currentHeader.reserved[1] = this->readDoubleWordAt(this->srcPos);
-                this->srcPos += 4;
+                this->currentHeader.uncompressedSize = this->readDoubleWord();
+                this->currentHeader.reserved[0] = this->readDoubleWord();
+                this->currentHeader.reserved[1] = this->readDoubleWord();
                 blockFound = true;
             }
         }
@@ -170,17 +201,17 @@ void Yaz0::decodeAll() {
         //     exit(-1);
         // }
 
-        fs::path rarcPath = Yaz0::generateRarcPath(this->sourcePath, this->srcPos);
+        this->outPath = Yaz0::generateRarcPath(this->sourcePath, this->srcPos);
 
-        std::ofstream rarcStream = std::ofstream(rarcPath, std::ios::binary);
+        // std::ofstream rarcStream = std::ofstream(this->outPath, std::ios::binary);
 
-        if (!rarcStream.is_open()) {
-            std::stringstream errorMsg;
-            errorMsg << format("Failed to open %s for writing.") % rarcPath.string();
-            throw std::runtime_error(errorMsg.str());
-        }
+        // if (!rarcStream.is_open()) {
+        //     std::stringstream errorMsg;
+        //     errorMsg << format("Failed to open %s for writing.") % this->outPath.string();
+        //     throw std::runtime_error(errorMsg.str());
+        // }
 
-        std::cout << format("Writing %s\n") % rarcPath.string();
+        std::cout << format("Writing %s\n") % this->outPath.string();
 
         std::cout << format("Writing 0x%X bytes\n") % this->currentHeader.uncompressedSize;
 
@@ -188,8 +219,8 @@ void Yaz0::decodeAll() {
 
         vector<uint8_t> decodedBlock = this->decodeBlock();
 
-        rarcStream.write(reinterpret_cast<char*>(decodedBlock.data()), decodedBlock.size());
-        rarcStream.close();
+        // rarcStream.write(reinterpret_cast<char*>(decodedBlock.data()), decodedBlock.size());
+        // rarcStream.close();
 
         std::cout << format("Read 0x%X bytes from input data\n") % this->srcPos;
     }
@@ -265,7 +296,7 @@ uint32_t Yaz0::toLittleEndian(const uint32_t &num)
 fs::path Yaz0::generateRarcPath(fs::path srcPath, int bytePosition) {
     std::stringstream pathString;
     string fileName = srcPath.replace_extension("").filename().string();
-    pathString << format("%s_%X.rarc") % fileName % (bytePosition-4);
+    pathString << format("%s_%d.rarc") % fileName % this->blockNum;
     return fs::path(pathString.str());
 }
 
